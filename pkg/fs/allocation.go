@@ -212,3 +212,73 @@ func (v *VirtualFileSystem) FsStatus(details bool) {
 		fmt.Println("Necessidade de Compactação       : NÃO (Blocos alocados via i-node indexado)")
 	}
 }
+
+func (v *VirtualFileSystem) Cd(path string) {
+	target := v.ResolvePath(path)
+	if target == nil {
+		fmt.Printf("cd: %s: Diretório não encontrado.\n", path)
+		return
+	}
+	if !target.IsDir {
+		fmt.Printf("cd: %s: Não é um diretório.\n", path)
+		return
+	}
+	v.CurrentDir = target
+}
+
+func (v *VirtualFileSystem) Read(path string) {
+	node := v.ResolvePath(path)
+	if node == nil {
+		fmt.Printf("read: '%s' não encontrado.\n", path)
+		return
+	}
+	if node.IsDir {
+		items := []string{}
+		for name, child := range node.Children {
+			if child.IsDir {
+				items = append(items, name+"/")
+			} else {
+				items = append(items, name)
+			}
+		}
+		fmt.Println(strings.Join(items, "  "))
+	} else {
+		if node.Content != "" {
+			fmt.Println(node.Content)
+		} else {
+			fmt.Printf("[Conteúdo Simulado - Tamanho: %d bytes]\n", node.SizeBytes)
+		}
+	}
+}
+
+func (v *VirtualFileSystem) Delete(path string) {
+	node := v.ResolvePath(path)
+	if node == nil {
+		fmt.Printf("rm: '%s' não encontrado.\n", path)
+		return
+	}
+	if node == v.Root {
+		fmt.Println("rm: não é possível remover o diretório raiz.")
+		return
+	}
+	if node.IsDir && len(node.Children) > 0 {
+		fmt.Printf("rm: impossível remover '%s': Diretório não vazio.\n", path)
+		return
+	}
+
+	fullPath := v.GetFullPath(node)
+
+	if !node.IsDir {
+		for _, b := range node.DirectBlocks {
+			v.Blocks[b] = nil
+		}
+		for idx, b := range v.Blocks {
+			if b != nil && strings.Contains(b.Description, fullPath) && strings.Contains(b.Tag, "INODE") {
+				v.Blocks[idx] = nil
+			}
+		}
+	}
+
+	delete(node.Parent.Children, node.Name)
+	delete(v.Inodes, node.ID)
+}
