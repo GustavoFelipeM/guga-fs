@@ -1,0 +1,21 @@
+mkdir /sistema
+mkdir /sistema/logs
+mkdir /dados
+iosched demo
+iosched head 53
+iosched sstf
+iosched queue add 98 183 37 122 14
+write_file /sistema/logs/app.log "Novo Registro"
+iosched scan
+iosched queue add 98 183 37 122 14
+cat /sistema/logs/app.log
+raid status
+write_file /dados/planilha.csv --size 8KB --fail 2
+raid 4
+raid test 3
+raid 1
+raid test 1
+raid 0
+raid test 1
+fs_status --details
+exit

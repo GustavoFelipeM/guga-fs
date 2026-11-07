@@ -2,10 +2,11 @@ package fs
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
-func (v *VirtualFileSystem) Mkdir(path string) {
+func splitPath(path string) (parentPath, name string, ok bool) {
 	parts := []string{}
 	for _, p := range strings.Split(path, "/") {
 		if p != "" {
@@ -13,18 +14,27 @@ func (v *VirtualFileSystem) Mkdir(path string) {
 		}
 	}
 	if len(parts) == 0 {
+		return "", "", false
+	}
+	name = parts[len(parts)-1]
+	if name == "." || name == ".." {
+		return "", "", false
+	}
+	dir := strings.Join(parts[:len(parts)-1], "/")
+	if strings.HasPrefix(path, "/") {
+		return "/" + dir, name, true
+	}
+	if dir == "" {
+		return ".", name, true
+	}
+	return dir, name, true
+}
+
+func (v *VirtualFileSystem) Mkdir(path string) {
+	parentPath, dirName, ok := splitPath(path)
+	if !ok {
 		fmt.Println("mkdir: caminho inválido")
 		return
-	}
-
-	dirName := parts[len(parts)-1]
-	parentPath := "/" + strings.Join(parts[:len(parts)-1], "/")
-	if !strings.HasPrefix(path, "/") {
-		if len(parts) > 1 {
-			parentPath = strings.Join(parts[:len(parts)-1], "/")
-		} else {
-			parentPath = "."
-		}
 	}
 
 	parent := v.ResolvePath(parentPath)
@@ -43,65 +53,111 @@ func (v *VirtualFileSystem) Mkdir(path string) {
 }
 
 func (v *VirtualFileSystem) Create(path, sizeStr string) {
-	sizeBytes := ParseSize(sizeStr)
-	parts := []string{}
-	for _, p := range strings.Split(path, "/") {
-		if p != "" {
-			parts = append(parts, p)
-		}
-	}
-	if len(parts) == 0 {
-		fmt.Println("create: caminho inválido")
-		return
-	}
+	v.writeFile("create", path, "", ParseSize(sizeStr), false)
+}
 
-	fileName := parts[len(parts)-1]
-	parentPath := "/" + strings.Join(parts[:len(parts)-1], "/")
-	if !strings.HasPrefix(path, "/") {
-		if len(parts) > 1 {
-			parentPath = strings.Join(parts[:len(parts)-1], "/")
-		} else {
-			parentPath = "."
+func (v *VirtualFileSystem) WriteFile(path, content, sizeStr string) {
+	size := 0
+	if sizeStr != "" {
+		size = ParseSize(sizeStr)
+	}
+	if size == 0 && content == "" {
+		size = 1024
+	}
+	v.writeFile("write_file", path, content, size, true)
+}
+
+func buildPayload(content string, size int, name string) []byte {
+	buf := make([]byte, size)
+	n := copy(buf, content)
+	if content == "" && n < size {
+		pattern := []byte(name + "|")
+		for i := 0; i < size; i++ {
+			buf[i] = pattern[i%len(pattern)]
 		}
+	}
+	return buf
+}
+
+func (v *VirtualFileSystem) writeFile(cmd, path, content string, size int, overwrite bool) {
+	parentPath, name, ok := splitPath(path)
+	if !ok {
+		fmt.Printf("%s: caminho inválido\n", cmd)
+		return
 	}
 
 	parent := v.ResolvePath(parentPath)
 	if parent == nil || !parent.IsDir {
-		fmt.Println("create: diretório pai não encontrado.")
-		return
-	}
-	if _, exists := parent.Children[fileName]; exists {
-		fmt.Printf("create: arquivo '%s' já existe.\n", fileName)
+		fmt.Printf("%s: diretório pai não encontrado.\n", cmd)
 		return
 	}
 
-	neededDataBlocks := (sizeBytes + v.BlockSize - 1) / v.BlockSize
-	neededTotalBlocks := 1 + neededDataBlocks
-
-	freeBlocks := v.GetFreeBlocks()
-	if len(freeBlocks) < neededTotalBlocks {
-		fmt.Printf("Erro: Espaço insuficiente (%d blocos necessários, %d livres).\n", neededTotalBlocks, len(freeBlocks))
+	existing, exists := parent.Children[name]
+	if exists && existing.IsDir {
+		fmt.Printf("%s: '%s' é um diretório.\n", cmd, name)
+		return
+	}
+	if exists && !overwrite {
+		fmt.Printf("%s: arquivo '%s' já existe.\n", cmd, name)
 		return
 	}
 
-	inodeBlock := freeBlocks[0]
-	dataBlocks := freeBlocks[1 : 1+neededTotalBlocks-1]
+	if size < len(content) {
+		size = len(content)
+	}
+	neededData := (size + v.BlockSize - 1) / v.BlockSize
 
-	fInode := v.CreateInode(false, fileName)
-	fInode.SizeBytes = sizeBytes
-	fInode.Parent = parent
-	fInode.DirectBlocks = dataBlocks
-	parent.Children[fileName] = fInode
+	required := neededData
+	available := len(v.GetFreeBlocks())
+	if exists {
+		available += len(existing.DirectBlocks)
+	} else {
+		required++ // bloco do i-node
+	}
+	if available < required {
+		fmt.Printf("Erro: Espaço insuficiente (%d blocos necessários, %d livres).\n", required, available)
+		return
+	}
 
-	fullFilePath := v.GetFullPath(fInode)
-	cleanName := strings.ToUpper(strings.Split(fileName, ".")[0])
+	if exists {
+		for _, b := range existing.DirectBlocks {
+			v.Blocks[b] = nil
+			if v.IO != nil {
+				v.IO.FreeBlock(b)
+			}
+		}
+	}
+
+	free := v.GetFreeBlocks()
+	var node *Inode
+	var inodeBlock int
+	var dataBlocks []int
+	if exists {
+		node = existing
+		inodeBlock = node.InodeBlock
+		dataBlocks = append([]int(nil), free[:neededData]...)
+	} else {
+		inodeBlock = free[0]
+		dataBlocks = append([]int(nil), free[1:1+neededData]...)
+		node = v.CreateInode(false, name)
+		node.Parent = parent
+		node.InodeBlock = inodeBlock
+		parent.Children[name] = node
+	}
+
+	node.SizeBytes = size
+	node.DirectBlocks = dataBlocks
+	node.Content = content
+
+	fullFilePath := v.GetFullPath(node)
+	cleanName := strings.ToUpper(strings.Split(name, ".")[0])
 
 	v.Blocks[inodeBlock] = &BlockInfo{
 		Tag:         fmt.Sprintf("INODE_%s", cleanName),
 		Description: fmt.Sprintf("Arquivo '%s'", fullFilePath),
 	}
 
-	remainingBytes := sizeBytes
+	remainingBytes := size
 	for idx, bIdx := range dataBlocks {
 		bytesInThisBlock := v.BlockSize
 		if remainingBytes < v.BlockSize {
@@ -112,6 +168,24 @@ func (v *VirtualFileSystem) Create(path, sizeStr string) {
 			Description: fmt.Sprintf("'%s' (Bloco %d - %d bytes ocupados)", fullFilePath, idx+1, bytesInThisBlock),
 		}
 		remainingBytes -= bytesInThisBlock
+	}
+
+	if v.IO != nil {
+		meta := []byte(fmt.Sprintf("INODE id=%d caminho=%s tamanho=%d modo=%o blocos=%v",
+			node.ID, fullFilePath, size, node.Mode, dataBlocks))
+		v.IO.WriteBlock(inodeBlock, meta, fmt.Sprintf("INODE '%s'", fullFilePath))
+
+		payload := buildPayload(content, size, name)
+		for idx, bIdx := range dataBlocks {
+			start := idx * v.BlockSize
+			end := start + v.BlockSize
+			if end > len(payload) {
+				end = len(payload)
+			}
+			label := fmt.Sprintf("'%s' - Parte %d/%d", fullFilePath, idx+1, len(dataBlocks))
+			v.IO.WriteBlock(bIdx, payload[start:end], label)
+		}
+		v.IO.Flush(fmt.Sprintf("%s %s", cmd, fullFilePath))
 	}
 }
 
@@ -125,6 +199,7 @@ func (v *VirtualFileSystem) PrintTree(inode *Inode, prefix string) {
 	for k := range inode.Children {
 		keys = append(keys, k)
 	}
+	sort.Strings(keys)
 
 	for idx, key := range keys {
 		child := inode.Children[key]
@@ -180,9 +255,15 @@ func (v *VirtualFileSystem) FsStatus(details bool) {
 
 	if details {
 		fmt.Println("\n--- RELATÓRIO DE FRAGMENTAÇÃO ---")
+		ids := []int{}
+		for id := range v.Inodes {
+			ids = append(ids, id)
+		}
+		sort.Ints(ids)
+
 		files := []*Inode{}
-		for _, node := range v.Inodes {
-			if !node.IsDir {
+		for _, id := range ids {
+			if node := v.Inodes[id]; !node.IsDir {
 				files = append(files, node)
 			}
 		}
@@ -205,6 +286,10 @@ func (v *VirtualFileSystem) FsStatus(details bool) {
 
 			fmt.Printf("Tamanho Real do Arquivo '%s': %d bytes (%d KB)\n", f.Name, f.SizeBytes, f.SizeBytes/1024)
 			fmt.Printf("Espaço Alocado no Disco          : %d bytes (%d blocos de %d KB)\n", allocatedBytes, neededBlocks, blockKB)
+			if len(f.DirectBlocks) == 0 {
+				fmt.Println("Fragmentação Interna             : 0 bytes (arquivo vazio, sem blocos de dados)")
+				continue
+			}
 			fmt.Printf("Fragmentação Interna             : %d bytes (%.0f%% de desperdício no Bloco %02d)\n", internalFrag, wastePct, f.DirectBlocks[len(f.DirectBlocks)-1])
 		}
 
@@ -233,21 +318,57 @@ func (v *VirtualFileSystem) Read(path string) {
 		return
 	}
 	if node.IsDir {
+		names := []string{}
+		for name := range node.Children {
+			names = append(names, name)
+		}
+		sort.Strings(names)
 		items := []string{}
-		for name, child := range node.Children {
-			if child.IsDir {
+		for _, name := range names {
+			if node.Children[name].IsDir {
 				items = append(items, name+"/")
 			} else {
 				items = append(items, name)
 			}
 		}
 		fmt.Println(strings.Join(items, "  "))
-	} else {
+		return
+	}
+
+	if v.IO == nil {
 		if node.Content != "" {
 			fmt.Println(node.Content)
 		} else {
 			fmt.Printf("[Conteúdo Simulado - Tamanho: %d bytes]\n", node.SizeBytes)
 		}
+		return
+	}
+
+	full := v.GetFullPath(node)
+	if node.InodeBlock >= 0 {
+		v.IO.ReadBlock(node.InodeBlock, fmt.Sprintf("INODE '%s'", full))
+	}
+	buf := []byte{}
+	for idx, b := range node.DirectBlocks {
+		label := fmt.Sprintf("'%s' - Parte %d/%d", full, idx+1, len(node.DirectBlocks))
+		buf = append(buf, v.IO.ReadBlock(b, label)...)
+	}
+	v.IO.Flush(fmt.Sprintf("cat %s", full))
+
+	if len(buf) > node.SizeBytes {
+		buf = buf[:node.SizeBytes]
+	}
+	text := strings.ReplaceAll(string(buf), "\x00", "")
+	if text == "" {
+		fmt.Println("[arquivo vazio]")
+		return
+	}
+	const maxPreview = 160
+	runes := []rune(text)
+	if len(runes) > maxPreview {
+		fmt.Printf("%s...\n[%d bytes no total; exibindo os primeiros %d caracteres]\n", string(runes[:maxPreview]), node.SizeBytes, maxPreview)
+	} else {
+		fmt.Println(text)
 	}
 }
 
@@ -266,15 +387,15 @@ func (v *VirtualFileSystem) Delete(path string) {
 		return
 	}
 
-	fullPath := v.GetFullPath(node)
-
 	if !node.IsDir {
-		for _, b := range node.DirectBlocks {
-			v.Blocks[b] = nil
+		freed := append([]int(nil), node.DirectBlocks...)
+		if node.InodeBlock >= 0 {
+			freed = append(freed, node.InodeBlock)
 		}
-		for idx, b := range v.Blocks {
-			if b != nil && strings.Contains(b.Description, fullPath) && strings.Contains(b.Tag, "INODE") {
-				v.Blocks[idx] = nil
+		for _, b := range freed {
+			v.Blocks[b] = nil
+			if v.IO != nil {
+				v.IO.FreeBlock(b)
 			}
 		}
 	}

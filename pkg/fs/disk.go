@@ -13,6 +13,7 @@ type VirtualFileSystem struct {
 	NextInodeID int
 	Root        *Inode
 	CurrentDir  *Inode
+	IO          IOBackend
 }
 
 func NewVFS(blockSize, totalBlocks int) *VirtualFileSystem {
@@ -25,6 +26,7 @@ func NewVFS(blockSize, totalBlocks int) *VirtualFileSystem {
 	}
 
 	vfs.Root = vfs.CreateInode(true, "")
+	vfs.Root.InodeBlock = 0
 	vfs.Root.DirectBlocks = append(vfs.Root.DirectBlocks, 0)
 	vfs.Blocks[0] = &BlockInfo{
 		Tag:         "INODE_RAIZ",
@@ -36,12 +38,13 @@ func NewVFS(blockSize, totalBlocks int) *VirtualFileSystem {
 
 func (v *VirtualFileSystem) CreateInode(isDir bool, name string) *Inode {
 	inode := &Inode{
-		ID:        v.NextInodeID,
-		IsDir:     isDir,
-		Name:      name,
-		Children:  make(map[string]*Inode),
-		SizeBytes: 0,
-		Mode:      0755, // permissão padrão
+		ID:         v.NextInodeID,
+		IsDir:      isDir,
+		Name:       name,
+		Children:   make(map[string]*Inode),
+		SizeBytes:  0,
+		Mode:       0755, // permissão padrão
+		InodeBlock: -1,
 	}
 	v.Inodes[v.NextInodeID] = inode
 	v.NextInodeID++
@@ -112,7 +115,10 @@ func (v *VirtualFileSystem) GetFullPath(inode *Inode) string {
 
 func ParseSize(sizeStr string) int {
 	s := strings.ToUpper(strings.TrimSpace(sizeStr))
-	if strings.HasSuffix(s, "KB") {
+	if strings.HasSuffix(s, "MB") {
+		val, _ := strconv.ParseFloat(strings.TrimSuffix(s, "MB"), 64)
+		return int(val * 1024 * 1024)
+	} else if strings.HasSuffix(s, "KB") {
 		val, _ := strconv.ParseFloat(strings.TrimSuffix(s, "KB"), 64)
 		return int(val * 1024)
 	} else if strings.HasSuffix(s, "B") {

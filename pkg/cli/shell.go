@@ -46,7 +46,6 @@ func RunShell(vfs *fs.VirtualFileSystem) {
 			continue
 		}
 
-		// Busca e executa o comando registrado
 		handler, exists := commands.Registry[cmdName]
 		if exists {
 			handler(vfs, args)

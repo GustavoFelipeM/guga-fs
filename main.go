@@ -1,14 +1,29 @@
 package main
 
 import (
+	"fmt"
+	"os"
+
 	"guga-fs/pkg/cli"
 	"guga-fs/pkg/fs"
+	"guga-fs/pkg/storage"
 )
 
 func main() {
-	// Inicializa o sistema de arquivos (Blocos de 4KB, 16 blocos total)
-	vfs := fs.NewVFS(4096, 16)
+	const (
+		blockSize   = 4096
+		totalBlocks = 16
+		tracks      = 200
+	)
 
-	// Executa o Shell interativo
+	vfs := fs.NewVFS(blockSize, totalBlocks)
+
+	io, err := storage.NewController(blockSize, totalBlocks, tracks)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "erro ao iniciar a camada de E/S:", err)
+		os.Exit(1)
+	}
+	vfs.IO = io
+
 	cli.RunShell(vfs)
 }
