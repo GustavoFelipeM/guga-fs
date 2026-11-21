@@ -3,8 +3,10 @@ package cli
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -14,6 +16,9 @@ import (
 )
 
 func setEcho(on bool) {
+	if runtime.GOOS == "js" {
+		return
+	}
 	arg := "-echo"
 	if on {
 		arg = "echo"
@@ -30,7 +35,14 @@ var commandsOpenToGuests = map[string]bool{
 }
 
 func RunShell(vfs *fs.VirtualFileSystem) {
-	scanner := bufio.NewScanner(os.Stdin)
+	RunShellWithInput(vfs, os.Stdin)
+}
+
+func RunShellWithInput(vfs *fs.VirtualFileSystem, in io.Reader) {
+	if in == nil {
+		in = os.Stdin
+	}
+	scanner := bufio.NewScanner(in)
 
 	if vfs.Sec == nil {
 		vfs.Sec = security.NewSystem()
@@ -44,7 +56,9 @@ func RunShell(vfs *fs.VirtualFileSystem) {
 		if ok {
 			line = strings.TrimRight(scanner.Text(), "\r\n")
 		}
-		fmt.Println(strings.Repeat("*", len(line)))
+		if runtime.GOOS != "js" {
+			fmt.Println(strings.Repeat("*", len(line)))
+		}
 		return line
 	}
 

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>guga-os — Simulador de Sistema Operacional Modular</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" />
+  <style>
+    body { margin: 0; background: #0d1117; color: #c9d1d9; font-family: system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+    header { padding: 10px 16px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center; }
+    header h1 { font-size: 15px; margin: 0; color: #58a6ff; }
+    header span { font-size: 12px; color: #8b949e; }
+    #terminal { flex: 1; padding: 10px; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Simulador de SO Modular (guga-fs) — Web Terminal</h1>
+    <span>Dica: cole scripts inteiros (demo_etapa4 / demo_etapa5) com Ctrl+V</span>
+  </header>
+  <div id="terminal"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script src="wasm_exec.js"></script>
+  <script>
+    const term = new Terminal({
+      cursorBlink: true,
+      fontSize: 14,
+      fontFamily: 'Consolas, "Courier New", monospace',
+      theme: { background: '#0d1117' }
+    });
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(document.getElementById('terminal'));
+    fitAddon.fit();
+    window.addEventListener('resize', () => fitAddon.fit());
+
+    // Libera Ctrl+C (quando há texto selecionado) e Ctrl+V para o navegador
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type !== 'keydown') return true;
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'c' && term.hasSelection()) {
+        return false;
+      }
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'v') {
+        return false;
+      }
+      return true;
+    });
+
+    const decoder = new TextDecoder('utf-8');
+    let hideNextInput = false;
+    let lineBuffer = '';
+
+    // Redireciona toda saída stdout/stderr do Go para o terminal xterm.js
+    const origWriteSync = globalThis.fs.writeSync.bind(globalThis.fs);
+    globalThis.fs.writeSync = (fd, buf) => {
+      if (fd === 1 || fd === 2) {
+        const text = decoder.decode(buf);
+        if (text.includes('Senha:') || text.includes('senha:')) {
+          hideNextInput = true;
+        }
+        term.write(text.replace(/\n/g, '\r\n'));
+        return buf.length;
+      }
+      return origWriteSync(fd, buf);
+    };
+
+    // Captura digitação e colagem de múltiplas linhas (Ctrl+V)
+    term.onData((data) => {
+      const normalized = data.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
+      for (const ch of normalized) {
+        if (ch === '\r') {
+          term.write('\r\n');
+          const comando = lineBuffer + '\n';
+          lineBuffer = '';
+          hideNextInput = false; // Reseta ANTES de chamar o Go
+          if (window.goSendInput) {
+            window.goSendInput(comando);
+          }
+        } else if (ch === '\u007F' || ch === '\b') { // Backspace
+          if (lineBuffer.length > 0) {
+            lineBuffer = lineBuffer.slice(0, -1);
+            term.write('\b \b');
+          }
+        } else if (ch >= ' ') {
+          lineBuffer += ch;
+          term.write(hideNextInput ? '*' : ch);
+        }
+      }
+    });
+
+    const go = new Go();
+    WebAssembly.instantiateStreaming(fetch('guga-os.wasm'), go.importObject)
+      .then((res) => go.run(res.instance))
+      .catch((err) => term.write('\r\nErro ao carregar WASM: ' + err + '\r\n'));
+  </script>
+</body>
+</html>
