@@ -23,6 +23,7 @@ guga-fs/
 ├── go.mod                      # Módulo Go
 ├── demo_etapa2.txt             # Script de demonstração da Etapa 2
 ├── demo_etapa3.txt             # Script de demonstração da Etapa 3
+├── demo_etapa4.txt             # Script de demonstração da Etapa 4
 └── pkg/
     ├── fs/                     # Núcleo do Sistema de Arquivos (Engine)
     │   ├── inode.go            # Estruturas de Inode, Blocos e Metadados
@@ -34,6 +35,11 @@ guga-fs/
     │   ├── acl.go              # Permissões rwx (dono/grupo/outros) + ACL estendida
     │   ├── crypto.go           # Derivação de chave (SHA-256+salt) e AES-256-CTR por bloco
     │   └── integrity.go        # Registro oficial de hashes por bloco e assinaturas maliciosas
+    ├── memory/                 # Gerenciamento de Memória (Etapa 4)
+    │   ├── manager.go          # Tipos, processos, configuração, utilidades de formatação
+    │   ├── reserved.go         # Área Reservada: alocação contígua, fragmentação externa, compactação
+    │   ├── paging.go           # Paginação: tabela de páginas, tradução, page fault, swap, FIFO/LRU/Segunda Chance
+    │   └── report.go           # Mapas, fragmentação interna/externa, ocupação e demo comparativo
     ├── storage/                # Camada de Armazenamento, E/S e RAID (Etapa 2)
     │   ├── scheduler.go        # FCFS, SSTF, SCAN e C-SCAN + cálculo do deslocamento
     │   ├── raid.go             # Arranjos RAID 0, 1, 4 e 5 (Paridade XOR e Reconstrução)
@@ -42,6 +48,7 @@ guga-fs/
         ├── shell.go            # Loop principal do Terminal
         └── commands/           # Manipuladores modulares de comandos
             ├── registry.go     # Mapeamento e registro de comandos
+            ├── memory.go       # Comandos da Etapa 4 (create_process, memory_status, ...)
             ├── mkdir.go        # Comando mkdir
             ├── create.go       # Comando create
             ├── write_file.go   # Comando write_file (E/S com RAID)
@@ -108,6 +115,16 @@ guga-fs/
 6. **Integração:** a Etapa 3 envolve as Etapas 1 e 2 — todo comando do FS passa pela ACL, os blocos criptografados/íntegros trafegam pela camada de E/S (escalonador + RAID), e as operações de RAID/escalonador passam a exigir Modo Kernel.
 
 
+### Etapa 4 — Gerenciamento de Memória
+1. **Modelo de alocação híbrido:** a RAM simulada é dividida em duas regiões. A **Área Reservada** (4 MB, endereços 0 a 4 MB) guarda o Núcleo Base do SO (0 a 1 MB, fixo) e os processos `critical`, com **alocação contígua e sem paginação**. A **RAM Dinâmica** (64 molduras de 4 KB por padrão, logo após os 4 MB) atende os processos `normal` por **paginação por demanda**. O espaço virtual é limitado pelo swap (256 páginas = 1 MB por padrão).
+2. **Alocação contígua e compactação:** `create_process --type critical` procura uma lacuna com **First Fit** (também há Best/Worst Fit via `memory_config --fit`). `terminate_process` libera o bloco e junta lacunas vizinhas. Se não houver bloco único, a falha explica se a causa é **fragmentação externa** (há espaço, mas dividido) ou falta real de espaço. `memory_compact --reserved` desliza os blocos para o início, mostra o novo endereço de cada um, o custo (KB copiados) e o mapa final.
+3. **Tabela de páginas e fragmentação interna:** `create_process --type normal` calcula `ceil(tamanho / 4 KB)` páginas, mostra quanto cada página usa e quantos bytes são desperdiçados na última. Nenhuma moldura é alocada na criação.
+4. **Tradução de endereços:** `translate_address` converte página lógica (ou endereço lógico) em moldura e **endereço físico** (`base dinâmica + moldura x 4096 + deslocamento`), indicando HIT ou MISS. É só consulta: não carrega páginas nem altera bits de acesso. Endereços fora do processo geram violação de endereço.
+5. **Page fault e substituição:** `execute_step` simula a CPU referenciando uma página. Se ela não está na RAM ocorre **page fault**: usa-se uma moldura livre ou, com a RAM cheia, executa-se o algoritmo escolhido, que **imprime o raciocínio**: **LRU** (relógio lógico, 5 ms por referência), **Segunda Chance/Clock** (mostra cada bit R zerado pelo ponteiro) e **FIFO**. A vítima vai para o **swap** se estiver modificada (bit M) ou ainda não tiver cópia; páginas limpas com cópia válida são descartadas sem E/S. Ao voltar, a página é lida do swap.
+6. **Relatórios e ocupação:** `memory_status` (sem opções) mostra o consumo da RAM crítica, da RAM dinâmica, da memória virtual e do swap, mais um resumo de fragmentação. `--reserved` mostra o mapa e o diagnóstico de fragmentação externa; `--virtual` mostra molduras, tabelas de páginas, fragmentação interna e estatísticas (hits, faults, swap-ins/outs). `memory_config --report-every N` imprime o **relatório periódico de fragmentação** a cada N operações de memória.
+7. **Comparativo:** `memory_demo` roda a mesma sequência de 20 referências com 3 molduras em FIFO, LRU e Segunda Chance, usando o mesmo código de paginação do simulador (15, 12 e 14 faltas de página, respectivamente).
+8. **Integração:** a Etapa 4 usa a **Etapa 3**: criar/encerrar processo crítico, compactar e reconfigurar a memória exigem **Modo Kernel** (`RequireKernel`, aceita `sudo`); processos normais só podem ser inspecionados ou encerrados pelo dono (ou kernel); tudo é registrado em `audit_log`. Usa também a **Etapa 2**: cada leitura/escrita de swap vira uma requisição na **fila do escalonador de disco** (`iosched queue show`), nas trilhas 150..199, e é atendida (FCFS/SSTF/SCAN/C-SCAN) junto com as requisições do sistema de arquivos no próximo `Flush`.
+
 ## Decisões de Modelagem
 
 - **Parâmetros do Disco:** O disco simulado possui **200 trilhas (0..199)**.
@@ -117,6 +134,8 @@ guga-fs/
 
 
 - **Etapa 3:** `root` é criado no boot com senha inicial `root123` (apenas para a demonstração). Grupos iniciais: `admin`, `users`, `devs`. Arquivos novos nascem `644` e diretórios `755`, com o dono sendo o usuário da sessão. O `antivirus_scan` é um serviço do sistema (qualquer usuário autenticado pode pedir o relatório, que não exibe conteúdo); só o reparo exige Modo Kernel. O disco simulado continua com 16 blocos.
+
+- **Etapa 4:** RAM física de 4 MB reservados + 256 KB dinâmicos (64 molduras), páginas de 4 KB e swap de 256 slots; tudo configurável com `memory_config` (alterar molduras/swap exige que não haja processos normais ativos). O tempo é lógico: cada referência a uma página avança 5 ms. Um page fault em moldura livre não conta como substituição. A primeira carga de uma página é por demanda (sem leitura de swap). O Núcleo Base (PID 0) nunca é movido nem encerrado. PIDs de usuário começam em 100.
 
 ## Como Executar
 
@@ -217,6 +236,37 @@ root@vfs:/# antivirus_scan /
 ```
 (os valores do ciphertext variam: o salt é aleatório a cada criptografia)
 
+### 4. Etapa 4 — Área reservada, fragmentação externa e compactação
+```text
+> create_process --name "Kernel_DiskDriver" --size 512KB --type critical
+- Alocado de forma contígua na Área Reservada: [1.0 MB até 1.5 MB] (512 KB)
+> create_process --name "Kernel_NetDriver" --size 1024KB --type critical
+> create_process --name "Kernel_CryptoEngine" --size 512KB --type critical
+> terminate_process --name "Kernel_NetDriver"
+> memory_status --reserved
+[0.0 MB - 1.0 MB]    : Núcleo Base do SO    (1024 KB)    [OCUPADO]
+[1.0 MB - 1.5 MB]    : Kernel_DiskDriver    (512 KB)     [OCUPADO]
+[1.5 MB - 2.5 MB]    : FRAGMENTO LIVRE 1    (1024 KB)    [LIVRE - LACUNA]
+[2.5 MB - 3.0 MB]    : Kernel_CryptoEngine  (512 KB)     [OCUPADO]
+[3.0 MB - 4.0 MB]    : FRAGMENTO LIVRE 2    (1024 KB)    [LIVRE - LACUNA]
+Fragmentação Externa Detectada           : SIM (2 fragmentos não contíguos)
+> memory_compact --reserved
+- Mapeamento de 'Kernel_CryptoEngine': [2.5 MB a 3.0 MB] -> Ajustado para: [1.5 MB a 2.0 MB]
+Resultado: Fragmentação externa eliminada. Maior bloco contíguo: 2048 KB.
+```
+
+### 5. Etapa 4 — Page fault com LRU e swap (4 molduras)
+```text
+> execute_step --process App_Navegador --instruction "LOAD_DATA Página 2"
+[PAGE FAULT DETECTADO]: Página Lógica 2 ausente na RAM!
+Memória RAM cheia. Executando Substituição de Página (Algoritmo LRU):
+- Analisando histórico de acesso: Página Lógica 0 do PID 104 (App_Navegador) não é usada há 25 ms (Mais antiga).
+- Removendo Página Lógica 0 do PID 104 da RAM -> Salvando no Swap (Disco), slot 0. [E/S: escrita do slot 0 enfileirada na trilha 150 do disco]
+- Carregando Página Lógica 2 do App_Navegador na Moldura Física 0 (RAM Dinâmica).
+- Tabela de Páginas atualizada: Página Lógica 2 ---> Moldura Física 0.
+```
+(trecho ilustrativo; o roteiro completo está em `demo_etapa4.txt`: `go run . < demo_etapa4.txt`)
+
 ## Tabela de Comandos Suportados
 
 | Categoria | Comando | Sintaxe Exemplo | Descrição |
@@ -250,5 +300,13 @@ root@vfs:/# antivirus_scan /
 | | `antivirus_scan` | `antivirus_scan / [--repair]` | Auditoria de hashes por bloco e assinaturas; `--repair` (kernel) restaura via RAID/quarentena. |
 | | `disk_tamper` | `disk_tamper /sistema/logs/app.log` | (kernel) Simula escrita direta no bloco físico. |
 | | `audit_log` | `audit_log 20` | (kernel) Últimos eventos do log de auditoria. |
+| **Memória** | `create_process` | `create_process --name "Kernel_X" --size 512KB --type critical` | Cria processo: `critical` = Área Reservada contígua (kernel); `normal` = memória virtual paginada. |
+| | `terminate_process` | `terminate_process --name "Kernel_X"` | Encerra o processo e libera memória/swap (crítico exige kernel; normal, dono ou kernel). |
+| | `memory_status` | `memory_status [--reserved\|--virtual\|--all]` | Ocupação (sem opções), mapa + fragmentação externa, ou molduras + tabelas de páginas + fragmentação interna. |
+| | `memory_compact` | `memory_compact --reserved` | (kernel) Compacta a Área Reservada, eliminando a fragmentação externa. |
+| | `translate_address` | `translate_address --process App --page 1 [--offset N]` | Página lógica (ou `--addr`) -> moldura e endereço físico (HIT/MISS). |
+| | `execute_step` | `execute_step --process App --instruction "LOAD_DATA Página 2"` | Referencia uma página; trata page fault, substituição e swap. |
+| | `memory_config` | `memory_config --algo second_chance --frames 4 --report-every 8` | (kernel) Algoritmo (`lru`/`second_chance`/`fifo`), molduras, swap, fit e relatório periódico. |
+| | `memory_demo` | `memory_demo` | Compara FIFO, LRU e Segunda Chance na mesma sequência de referências. |
 | **Geral** | `clear` | `clear` | Limpa a tela do terminal. |
 | | `exit` | `exit` | Encerra o simulador. |

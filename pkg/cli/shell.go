@@ -48,7 +48,7 @@ func RunShell(vfs *fs.VirtualFileSystem) {
 		return line
 	}
 
-	fmt.Println("\033[1;36m=== Virtual File System Terminal (Modular) v3.0 — Segurança e Proteção ===\033[0m")
+	fmt.Println("\033[1;36m=== Virtual File System Terminal (Modular) v4.0 — Gerenciamento de Memória ===\033[0m")
 	fmt.Println("Digite 'help' para comandos. Digite 'exit' para encerrar.")
 	fmt.Printf("Faça login para começar: login --user %s (senha inicial: %s)\n", security.RootUser, security.DefaultRootPassword)
 

@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-
 type Mode int
 
 const (
@@ -287,7 +286,6 @@ func (s *System) IsKernel() bool {
 	return s == nil || s.Mode == ModeKernel
 }
 
-// RequireKernel é a "chamada de sistema" que protege operações críticas.
 func (s *System) RequireKernel(op string) bool {
 	if s.IsKernel() {
 		return true
@@ -300,7 +298,6 @@ func (s *System) RequireKernel(op string) bool {
 	return false
 }
 
-// WithKernel executa fn em modo kernel (identidade root) e depois restaura a sessão.
 func (s *System) WithKernel(fn func()) {
 	prevUser, prevMode := s.Current, s.Mode
 	s.Current = s.Users[RootUser]

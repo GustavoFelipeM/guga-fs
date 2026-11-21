@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"guga-fs/pkg/memory"
 	"guga-fs/pkg/security"
 )
 
@@ -17,6 +18,7 @@ type VirtualFileSystem struct {
 	CurrentDir  *Inode
 	IO          IOBackend
 	Sec         *security.System
+	Mem         *memory.Manager
 }
 
 func NewVFS(blockSize, totalBlocks int) *VirtualFileSystem {

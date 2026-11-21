@@ -1,0 +1,50 @@
+login --user root
+root123
+memory_config
+memory_status
+create_process --name "Kernel_DiskDriver" --size 512KB --type critical
+create_process --name "Kernel_NetDriver" --size 1024KB --type critical
+create_process --name "Kernel_CryptoEngine" --size 512KB --type critical
+terminate_process --name "Kernel_NetDriver"
+memory_status --reserved
+create_process --name "Kernel_Video" --size 1536KB --type critical
+memory_compact --reserved
+create_process --name "Kernel_Video" --size 1536KB --type critical
+memory_status --reserved
+memory_config --frames 4 --algo lru --report-every 8
+create_process --name "App_Navegador" --size 10KB --type normal
+create_process --name "App_Editor" --size 14KB --type normal
+translate_address --process App_Navegador --page 1
+execute_step --process App_Navegador --instruction "LOAD_DATA Página 0"
+execute_step --process App_Navegador --instruction "LOAD_DATA Página 1"
+execute_step --process App_Navegador --instruction "STORE_DATA Página 1"
+execute_step --process App_Editor --instruction "LOAD_DATA Página 0"
+execute_step --process App_Editor --instruction "LOAD_DATA Página 1"
+translate_address --process App_Navegador --page 1
+execute_step --process App_Navegador --instruction "LOAD_DATA Página 2"
+execute_step --process App_Navegador --instruction "LOAD_DATA Página 0"
+translate_address --process App_Navegador --page 1
+memory_status --virtual
+memory_config --algo second_chance
+execute_step --process App_Editor --instruction "LOAD_DATA Página 2"
+memory_demo
+memory_status
+iosched queue show
+useradd carlos --group devs
+carlos123
+carlos123
+logout
+login --user carlos
+carlos123
+create_process --name "Kernel_Hack" --size 64KB --type critical
+create_process --name "Carlos_App" --size 6KB --type normal
+execute_step --process App_Navegador --instruction "LOAD_DATA Página 0"
+terminate_process --name App_Navegador
+memory_compact --reserved
+logout
+login --user root
+root123
+terminate_process --name App_Editor
+memory_status --all
+audit_log 15
+exit

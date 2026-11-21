@@ -25,7 +25,6 @@ func HandleDecryptFile(vfs *fs.VirtualFileSystem, args []string) {
 	vfs.DecryptFile(rest[0], key)
 }
 
-// antivirus_scan [caminho] [--repair]
 func HandleAntivirusScan(vfs *fs.VirtualFileSystem, args []string) {
 	if !requireLogin(vfs) {
 		return
@@ -38,14 +37,13 @@ func HandleAntivirusScan(vfs *fs.VirtualFileSystem, args []string) {
 			path = a
 		}
 	}
-	// A varredura é um serviço do sistema (somente relatório); o reparo altera o disco e exige kernel.
+
 	if repair && !vfs.Sec.RequireKernel("antivirus_scan --repair") {
 		return
 	}
 	vfs.AntivirusScan(path, repair)
 }
 
-// disk_tamper <arquivo> ["dados"]  — simula escrita direta no bloco físico (ataque).
 func HandleDiskTamper(vfs *fs.VirtualFileSystem, args []string) {
 	if !requireLogin(vfs) || !vfs.Sec.RequireKernel("disk_tamper") {
 		return
@@ -57,7 +55,6 @@ func HandleDiskTamper(vfs *fs.VirtualFileSystem, args []string) {
 	vfs.TamperBlock(args[0], strings.Trim(strings.Join(args[1:], " "), "\"'"))
 }
 
-// audit_log [N] — exibe os últimos N eventos de segurança (kernel).
 func HandleAuditLog(vfs *fs.VirtualFileSystem, args []string) {
 	if !requireLogin(vfs) || !vfs.Sec.RequireKernel("audit_log") {
 		return

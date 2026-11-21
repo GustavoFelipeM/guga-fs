@@ -193,11 +193,9 @@ func (v *VirtualFileSystem) ListLong(path string) {
 	}
 }
 
-// ---------- Metadados persistidos nos blocos ----------
-
 func (v *VirtualFileSystem) inodeMeta(node *Inode) []byte {
-	return []byte(fmt.Sprintf("INODE id=%d caminho=%s tamanho=%d modo=%o dono=%s:%s acl=%d cripto=%t blocos=%v",
-		node.ID, v.GetFullPath(node), node.SizeBytes, node.Mode, node.Owner, node.Group, len(node.ACL), node.Encrypted, node.DirectBlocks))
+	return fmt.Appendf(nil, "INODE id=%d caminho=%s tamanho=%d modo=%o dono=%s:%s acl=%d cripto=%t blocos=%v",
+		node.ID, v.GetFullPath(node), node.SizeBytes, node.Mode, node.Owner, node.Group, len(node.ACL), node.Encrypted, node.DirectBlocks)
 }
 
 func (v *VirtualFileSystem) persistInode(node *Inode) {
@@ -322,7 +320,7 @@ func (v *VirtualFileSystem) EncryptFile(path, key string) {
 	node.Encrypted = true
 	node.CryptSalt = salt
 	node.KeyCheck = security.KeyCheck(k)
-	node.Content = "" 
+	node.Content = ""
 
 	v.writeBack(node, cipherText, "encrypt_file")
 	v.Sec.Record("CRIPTOGRAFAR", true, v.GetFullPath(node))
@@ -388,7 +386,6 @@ func fileBlocks(n *Inode) []int {
 	}
 	return append(blocks, n.DirectBlocks...)
 }
-
 
 func (v *VirtualFileSystem) AntivirusScan(path string, repair bool) {
 	root := v.ResolvePath(path)
@@ -478,7 +475,6 @@ func (v *VirtualFileSystem) AntivirusScan(path string, repair bool) {
 	fmt.Println()
 	v.Sec.Record("ANTIVIRUS_SCAN", true, fmt.Sprintf("%s: %d arquivos, %d alertas, %d infectados", path, len(files), alerts, infected))
 }
-
 
 func (v *VirtualFileSystem) TamperBlock(path string, data string) {
 	node := v.ResolvePath(path)

@@ -34,7 +34,7 @@ func VerifyKey(key []byte, check string) bool {
 }
 
 func ivFor(salt string, idx int) []byte {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|bloco|%d", salt, idx)))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s|bloco|%d", salt, idx))
 	return sum[:aes.BlockSize]
 }
 

@@ -13,14 +13,12 @@ type Inode struct {
 	Children     map[string]*Inode
 	Content      string
 	Mode         uint32
-
-	// Etapa 3: segurança
-	Owner     string
-	Group     string
-	ACL       []security.ACLEntry
-	Encrypted bool
-	CryptSalt string
-	KeyCheck  string
+	Owner        string
+	Group        string
+	ACL          []security.ACLEntry
+	Encrypted    bool
+	CryptSalt    string
+	KeyCheck     string
 }
 
 type BlockInfo struct {
@@ -34,7 +32,6 @@ type IOBackend interface {
 	FreeBlock(block int)
 	Flush(operation string)
 }
-
 
 type RawIO interface {
 	PeekBlock(block int) ([]byte, error)
