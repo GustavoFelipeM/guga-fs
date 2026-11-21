@@ -6,6 +6,7 @@ import (
 
 	"guga-fs/pkg/cli"
 	"guga-fs/pkg/fs"
+	"guga-fs/pkg/security"
 	"guga-fs/pkg/storage"
 )
 
@@ -24,6 +25,7 @@ func main() {
 		os.Exit(1)
 	}
 	vfs.IO = io
+	vfs.Sec = security.NewSystem() // Etapa 3: usuários, grupos, ACL, auditoria e integridade
 
 	cli.RunShell(vfs)
 }

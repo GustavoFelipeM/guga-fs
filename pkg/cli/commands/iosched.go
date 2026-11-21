@@ -35,6 +35,11 @@ func HandleIOSched(vfs *fs.VirtualFileSystem, args []string) {
 		return
 	}
 
+	readOnly := args[0] == "demo" || (args[0] == "queue" && len(args) > 1 && args[1] == "show")
+	if !readOnly && !vfs.Sec.RequireKernel("iosched "+args[0]) {
+		return
+	}
+
 	if algo, ok := storage.ParseAlgorithm(args[0]); ok {
 		ctrl.Algo = algo
 		fmt.Printf("Algoritmo de escalonamento: %s\n", algo)
@@ -107,7 +112,6 @@ func handleQueue(ctrl *storage.Controller, args []string) {
 	}
 }
 
-// runDemo reproduz o Exemplo 2.1 do enunciado com todos os algoritmos.
 func runDemo(ctrl *storage.Controller) {
 	queue := []int{98, 183, 37, 122, 14}
 	head := 53

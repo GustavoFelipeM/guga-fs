@@ -2,8 +2,9 @@ package commands
 
 import (
 	"fmt"
-	"guga-fs/pkg/fs"
 	"strconv"
+
+	"guga-fs/pkg/fs"
 )
 
 func HandleChmod(vfs *fs.VirtualFileSystem, args []string) {
@@ -13,17 +14,10 @@ func HandleChmod(vfs *fs.VirtualFileSystem, args []string) {
 	}
 
 	mode, err := strconv.ParseUint(args[0], 8, 32)
-	if err != nil {
-		fmt.Println("chmod: modo octal inválido")
+	if err != nil || mode > 0777 {
+		fmt.Println("chmod: modo octal inválido (use 000..777)")
 		return
 	}
 
-	target := vfs.ResolvePath(args[1])
-	if target == nil {
-		fmt.Printf("chmod: '%s' não encontrado\n", args[1])
-		return
-	}
-
-	target.Mode = uint32(mode)
-	fmt.Printf("Permissões de '%s' alteradas para %o\n", args[1], mode)
+	vfs.Chmod(args[1], uint32(mode))
 }

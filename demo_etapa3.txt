@@ -1,0 +1,68 @@
+login --user root
+root123
+users
+groupadd qa
+useradd carlos --group devs
+carlos123
+carlos123
+useradd maria --group devs
+maria123
+maria123
+useradd ana --group qa
+ana12345
+ana12345
+usermod -aG admin ana
+users --show-hash
+mkdir /sistema
+mkdir /sistema/logs
+create /sistema/config.sys --size 2KB
+write_file /sistema/logs/app.log "Servidor iniciado sem erros"
+chown root:admin /sistema/config.sys
+chmod 750 /sistema/config.sys
+ls -l /sistema
+logout
+login --user carlos
+senha-errada
+login --user carlos
+carlos123
+whoami
+read_file /sistema/config.sys
+useradd joao
+raid 5
+sudo raid 5
+write_file /home/carlos/segredo.txt "Meu segredo"
+encrypt_file /home/carlos/segredo.txt --key "MinhaChave123"
+cat /home/carlos/segredo.txt
+cat /home/carlos/segredo.txt --key "chave-errada"
+cat /home/carlos/segredo.txt --key "MinhaChave123"
+chmod 600 /home/carlos/segredo.txt
+logout
+login --user maria
+maria123
+cat /home/carlos/segredo.txt
+logout
+login --user carlos
+carlos123
+setfacl -m u:maria:r-- /home/carlos/segredo.txt
+getfacl /home/carlos/segredo.txt
+ls -l /home/carlos
+logout
+login --user maria
+maria123
+cat /home/carlos/segredo.txt
+write_file /home/carlos/segredo.txt "tentando sobrescrever"
+logout
+login --user ana
+ana12345
+sudo audit_log 12
+ana12345
+logout
+login --user root
+root123
+disk_tamper /sistema/logs/app.log "linha forjada pelo atacante"
+write_file /home/carlos/virus.exe "MALWARE_SIGNATURE_X payload"
+antivirus_scan /
+antivirus_scan / --repair
+antivirus_scan /
+audit_log 25
+exit

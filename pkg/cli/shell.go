@@ -4,21 +4,64 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
+	"sort"
 	"strings"
 
 	"guga-fs/pkg/cli/commands"
 	"guga-fs/pkg/fs"
+	"guga-fs/pkg/security"
 )
+
+func setEcho(on bool) {
+	arg := "-echo"
+	if on {
+		arg = "echo"
+	}
+	cmd := exec.Command("stty", arg)
+	cmd.Stdin = os.Stdin
+	_ = cmd.Run()
+}
+
+var commandsOpenToGuests = map[string]bool{
+	"login": true,
+	"help":  true,
+	"clear": true,
+}
 
 func RunShell(vfs *fs.VirtualFileSystem) {
 	scanner := bufio.NewScanner(os.Stdin)
 
-	fmt.Println("\033[1;36m=== Virtual File System Terminal (Modular) v1.0 ===\033[0m")
+	if vfs.Sec == nil {
+		vfs.Sec = security.NewSystem()
+	}
+	vfs.Sec.ReadSecret = func(prompt string) string {
+		fmt.Print(prompt)
+		setEcho(false)
+		ok := scanner.Scan()
+		setEcho(true)
+		line := ""
+		if ok {
+			line = strings.TrimRight(scanner.Text(), "\r\n")
+		}
+		fmt.Println(strings.Repeat("*", len(line)))
+		return line
+	}
+
+	fmt.Println("\033[1;36m=== Virtual File System Terminal (Modular) v3.0 — Segurança e Proteção ===\033[0m")
 	fmt.Println("Digite 'help' para comandos. Digite 'exit' para encerrar.")
+	fmt.Printf("Faça login para começar: login --user %s (senha inicial: %s)\n", security.RootUser, security.DefaultRootPassword)
 
 	for {
+		user, symbol := "guest", "$"
+		if vfs.Sec.Current != nil {
+			user = vfs.Sec.Current.Name
+			if vfs.Sec.IsKernel() {
+				symbol = "#"
+			}
+		}
 		cwd := vfs.GetFullPath(nil)
-		fmt.Printf("\033[1;32mguga@vfs\033[0m:\033[1;34m%s\033[0m$ ", cwd)
+		fmt.Printf("\033[1;32m%s@vfs\033[0m:\033[1;34m%s\033[0m%s ", user, cwd, symbol)
 
 		if !scanner.Scan() {
 			break
@@ -39,10 +82,20 @@ func RunShell(vfs *fs.VirtualFileSystem) {
 		}
 
 		if cmdName == "help" {
-			fmt.Println("Comandos disponíveis no registro:")
+			names := make([]string, 0, len(commands.Registry))
 			for name := range commands.Registry {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			fmt.Println("Comandos disponíveis no registro:")
+			for _, name := range names {
 				fmt.Printf(" - %s\n", name)
 			}
+			continue
+		}
+
+		if vfs.Sec.Current == nil && !commandsOpenToGuests[cmdName] {
+			fmt.Printf("Acesso negado: nenhum usuário autenticado. Use: login --user <nome>\n")
 			continue
 		}
 

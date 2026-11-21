@@ -291,3 +291,49 @@ func (c *Controller) rowInUse(row int) bool {
 	}
 	return false
 }
+
+func (c *Controller) validBlock(block int) error {
+	if block < 0 || block >= c.Array.LogicalBlocks {
+		return fmt.Errorf("bloco lógico %d fora do arranjo", block)
+	}
+	return nil
+}
+
+func (c *Controller) PeekBlock(block int) ([]byte, error) {
+	if err := c.validBlock(block); err != nil {
+		return nil, err
+	}
+	return c.Array.Read(block)
+}
+
+func (c *Controller) PokeBlock(block int, data []byte) error {
+	if err := c.validBlock(block); err != nil {
+		return err
+	}
+	return c.Array.Write(block, data)
+}
+
+func (c *Controller) RawWriteBlock(block int, data []byte) error {
+	if err := c.validBlock(block); err != nil {
+		return err
+	}
+	d, row, _ := c.Array.locate(block)
+	if c.Array.Disks[d].Failed {
+		return fmt.Errorf("Disco %d está falho", d+1)
+	}
+	buf := make([]byte, c.BlockSize)
+	copy(buf, data)
+	c.Array.Disks[d].Blocks[row] = buf
+	return nil
+}
+
+func (c *Controller) RepairBlock(block int) ([]byte, error) {
+	if err := c.validBlock(block); err != nil {
+		return nil, err
+	}
+	d, row, _ := c.Array.locate(block)
+	rec, _, err := c.Array.Reconstruct(d, row)
+	return rec, err
+}
+
+func (c *Controller) RedundancyName() string { return raidName(c.Array.Level) }

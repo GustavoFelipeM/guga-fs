@@ -111,7 +111,7 @@ func (a *Array) Layout(row int) []Cell {
 			cells[d] = Cell{Disk: d, Kind: "ESPELHO", Logical: row}
 		}
 	default:
-		_, _, p := a.locate(row * (n - 1)) // paridade da faixa
+		_, _, p := a.locate(row * (n - 1))
 		for d := 0; d < n; d++ {
 			if d == p {
 				cells[d] = Cell{Disk: d, Kind: "PARIDADE", Logical: -1}

@@ -1,3 +1,5 @@
+login --user root
+root123
 mkdir /sistema
 mkdir /sistema/logs
 mkdir /dados

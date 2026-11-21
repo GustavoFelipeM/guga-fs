@@ -50,6 +50,10 @@ func HandleWriteFile(vfs *fs.VirtualFileSystem, args []string) {
 		}
 	}
 
+	if failDisk > 0 && !vfs.Sec.RequireKernel("write_file --fail") {
+		return
+	}
+
 	vfs.WriteFile(path, strings.Join(words, " "), size)
 
 	if failDisk > 0 {

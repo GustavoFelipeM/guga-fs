@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"guga-fs/pkg/security"
 )
 
 func splitPath(path string) (parentPath, name string, ok bool) {
@@ -44,6 +46,10 @@ func (v *VirtualFileSystem) Mkdir(path string) {
 	}
 	if _, exists := parent.Children[dirName]; exists {
 		fmt.Printf("mkdir: não foi possível criar '%s': Já existe\n", dirName)
+		return
+	}
+
+	if !v.CheckAccess(parent, security.PermW) {
 		return
 	}
 
@@ -101,6 +107,13 @@ func (v *VirtualFileSystem) writeFile(cmd, path, content string, size int, overw
 		fmt.Printf("%s: arquivo '%s' já existe.\n", cmd, name)
 		return
 	}
+	if exists {
+		if !v.CheckAccess(existing, security.PermW) {
+			return
+		}
+	} else if !v.CheckAccess(parent, security.PermW) {
+		return
+	}
 
 	if size < len(content) {
 		size = len(content)
@@ -112,7 +125,7 @@ func (v *VirtualFileSystem) writeFile(cmd, path, content string, size int, overw
 	if exists {
 		available += len(existing.DirectBlocks)
 	} else {
-		required++ // bloco do i-node
+		required++
 	}
 	if available < required {
 		fmt.Printf("Erro: Espaço insuficiente (%d blocos necessários, %d livres).\n", required, available)
@@ -122,6 +135,7 @@ func (v *VirtualFileSystem) writeFile(cmd, path, content string, size int, overw
 	if exists {
 		for _, b := range existing.DirectBlocks {
 			v.Blocks[b] = nil
+			v.Sec.ForgetBlock(b)
 			if v.IO != nil {
 				v.IO.FreeBlock(b)
 			}
@@ -144,6 +158,13 @@ func (v *VirtualFileSystem) writeFile(cmd, path, content string, size int, overw
 		node.InodeBlock = inodeBlock
 		parent.Children[name] = node
 	}
+
+	if exists && node.Encrypted {
+		fmt.Printf("Aviso: '%s' estava criptografado; o novo conteúdo foi gravado em texto claro.\n", name)
+	}
+	node.Encrypted = false
+	node.CryptSalt = ""
+	node.KeyCheck = ""
 
 	node.SizeBytes = size
 	node.DirectBlocks = dataBlocks
@@ -171,9 +192,9 @@ func (v *VirtualFileSystem) writeFile(cmd, path, content string, size int, overw
 	}
 
 	if v.IO != nil {
-		meta := []byte(fmt.Sprintf("INODE id=%d caminho=%s tamanho=%d modo=%o blocos=%v",
-			node.ID, fullFilePath, size, node.Mode, dataBlocks))
+		meta := v.inodeMeta(node)
 		v.IO.WriteBlock(inodeBlock, meta, fmt.Sprintf("INODE '%s'", fullFilePath))
+		v.Sec.RecordBlock(inodeBlock, meta, v.BlockSize)
 
 		payload := buildPayload(content, size, name)
 		for idx, bIdx := range dataBlocks {
@@ -184,6 +205,7 @@ func (v *VirtualFileSystem) writeFile(cmd, path, content string, size int, overw
 			}
 			label := fmt.Sprintf("'%s' - Parte %d/%d", fullFilePath, idx+1, len(dataBlocks))
 			v.IO.WriteBlock(bIdx, payload[start:end], label)
+			v.Sec.RecordBlock(bIdx, payload[start:end], v.BlockSize)
 		}
 		v.IO.Flush(fmt.Sprintf("%s %s", cmd, fullFilePath))
 	}
@@ -308,13 +330,24 @@ func (v *VirtualFileSystem) Cd(path string) {
 		fmt.Printf("cd: %s: Não é um diretório.\n", path)
 		return
 	}
+	if !v.CheckAccess(target, security.PermX) {
+		return
+	}
 	v.CurrentDir = target
 }
 
 func (v *VirtualFileSystem) Read(path string) {
+	v.ReadWithKey(path, "")
+}
+
+
+func (v *VirtualFileSystem) ReadWithKey(path, key string) {
 	node := v.ResolvePath(path)
 	if node == nil {
 		fmt.Printf("read: '%s' não encontrado.\n", path)
+		return
+	}
+	if !v.CheckAccess(node, security.PermR) {
 		return
 	}
 	if node.IsDir {
@@ -358,6 +391,20 @@ func (v *VirtualFileSystem) Read(path string) {
 	if len(buf) > node.SizeBytes {
 		buf = buf[:node.SizeBytes]
 	}
+	if node.Encrypted {
+		if key == "" {
+			fmt.Printf("[ARQUIVO CRIPTOGRAFADO] %s (Encrypted Ciphertext)\n", security.HexPreview(buf, 16))
+			fmt.Println("Use: cat <arquivo> --key <chave> para decifrar.")
+			return
+		}
+		plain, err := v.decryptBuffer(node, key, buf)
+		if err != nil {
+			fmt.Printf("cat: %v\n", err)
+			v.Sec.Record("DECIFRAR_FALHOU", false, full)
+			return
+		}
+		buf = plain
+	}
 	text := strings.ReplaceAll(string(buf), "\x00", "")
 	if text == "" {
 		fmt.Println("[arquivo vazio]")
@@ -386,6 +433,9 @@ func (v *VirtualFileSystem) Delete(path string) {
 		fmt.Printf("rm: impossível remover '%s': Diretório não vazio.\n", path)
 		return
 	}
+	if !v.CheckAccess(node.Parent, security.PermW) {
+		return
+	}
 
 	if !node.IsDir {
 		freed := append([]int(nil), node.DirectBlocks...)
@@ -394,6 +444,7 @@ func (v *VirtualFileSystem) Delete(path string) {
 		}
 		for _, b := range freed {
 			v.Blocks[b] = nil
+			v.Sec.ForgetBlock(b)
 			if v.IO != nil {
 				v.IO.FreeBlock(b)
 			}

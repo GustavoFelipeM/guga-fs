@@ -3,6 +3,8 @@ package fs
 import (
 	"strconv"
 	"strings"
+
+	"guga-fs/pkg/security"
 )
 
 type VirtualFileSystem struct {
@@ -14,6 +16,7 @@ type VirtualFileSystem struct {
 	Root        *Inode
 	CurrentDir  *Inode
 	IO          IOBackend
+	Sec         *security.System
 }
 
 func NewVFS(blockSize, totalBlocks int) *VirtualFileSystem {
@@ -37,14 +40,24 @@ func NewVFS(blockSize, totalBlocks int) *VirtualFileSystem {
 }
 
 func (v *VirtualFileSystem) CreateInode(isDir bool, name string) *Inode {
+	mode := uint32(0644)
+	if isDir {
+		mode = 0755
+	}
+	owner, group := security.RootUser, security.AdminGroup
+	if v.Sec != nil && v.Sec.Current != nil {
+		owner, group = v.Sec.Current.Name, v.Sec.Current.Group
+	}
 	inode := &Inode{
 		ID:         v.NextInodeID,
 		IsDir:      isDir,
 		Name:       name,
 		Children:   make(map[string]*Inode),
 		SizeBytes:  0,
-		Mode:       0755, // permissão padrão
+		Mode:       mode,
 		InodeBlock: -1,
+		Owner:      owner,
+		Group:      group,
 	}
 	v.Inodes[v.NextInodeID] = inode
 	v.NextInodeID++

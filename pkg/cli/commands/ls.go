@@ -4,8 +4,17 @@ import "guga-fs/pkg/fs"
 
 func HandleLs(vfs *fs.VirtualFileSystem, args []string) {
 	path := "."
-	if len(args) > 0 {
-		path = args[0]
+	long := false
+	for _, a := range args {
+		if a == "-l" {
+			long = true
+		} else {
+			path = a
+		}
+	}
+	if long {
+		vfs.ListLong(path)
+		return
 	}
 	vfs.Read(path)
 }

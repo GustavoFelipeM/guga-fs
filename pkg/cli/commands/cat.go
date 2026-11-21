@@ -6,9 +6,10 @@ import (
 )
 
 func HandleCat(vfs *fs.VirtualFileSystem, args []string) {
-	if len(args) < 1 {
+	rest, key := splitKey(args)
+	if len(rest) < 1 {
 		fmt.Println("cat: operando ausente")
 		return
 	}
-	vfs.Read(args[0])
+	vfs.ReadWithKey(rest[0], key)
 }

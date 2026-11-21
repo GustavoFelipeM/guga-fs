@@ -26,6 +26,10 @@ func HandleRaid(vfs *fs.VirtualFileSystem, args []string) {
 		return
 	}
 
+	if !vfs.Sec.RequireKernel("raid " + args[0]) {
+		return
+	}
+
 	switch args[0] {
 	case "fail", "rebuild", "test":
 		if len(args) < 2 {
