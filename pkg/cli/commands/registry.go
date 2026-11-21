@@ -44,4 +44,11 @@ var Registry = map[string]CommandHandler{
 	"execute_step":      HandleExecuteStep,
 	"memory_config":     HandleMemoryConfig,
 	"memory_demo":       HandleMemoryDemo,
+	"run_simulation":    HandleRunSimulation,
+	"schedule":          HandleSchedule,
+	"ps":                HandlePs,
+	"create_thread":     HandleCreateThread,
+	"mutex_lock":        HandleMutexLock,
+	"mutex_unlock":      HandleMutexUnlock,
+	"concurrency_demo":  HandleConcurrencyDemo,
 }

@@ -1,0 +1,19 @@
+login --user root
+root123
+memory_config --frames 3 --algo lru
+create_process --name "App_Web" --burst 8ms --priority 1 --syscall "read_disk at 3ms (duration: 4ms)"
+create_process --name "App_Render" --burst 5ms --priority 2 --syscall "random"
+ps
+run_simulation --process App_Web --steps 3 --pages 2,7,4
+ps
+concurrency_demo
+terminate_process --name App_Web
+terminate_process --name App_Render
+create_process --name "App_Web" --burst 8ms --priority 1 --syscall "read_disk at 4ms (duration: 4ms)"
+create_process --name "App_Render" --burst 5ms --priority 2
+create_process --name "App_Worker" --burst 4ms --priority 1
+schedule --algorithm Priority_RR --quantum 2ms
+iosched queue show
+memory_status --virtual
+audit_log 15
+exit

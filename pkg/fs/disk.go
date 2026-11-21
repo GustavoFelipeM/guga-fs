@@ -19,6 +19,7 @@ type VirtualFileSystem struct {
 	IO          IOBackend
 	Sec         *security.System
 	Mem         *memory.Manager
+	Proc        interface{}
 }
 
 func NewVFS(blockSize, totalBlocks int) *VirtualFileSystem {

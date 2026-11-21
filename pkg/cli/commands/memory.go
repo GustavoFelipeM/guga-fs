@@ -7,6 +7,7 @@ import (
 
 	"guga-fs/pkg/fs"
 	"guga-fs/pkg/memory"
+	"guga-fs/pkg/process"
 	"guga-fs/pkg/storage"
 )
 
@@ -92,36 +93,95 @@ func HandleCreateProcess(vfs *fs.VirtualFileSystem, args []string) {
 		return
 	}
 	f := parseFlags(args)
-	name, sizeStr := f.get("name"), f.get("size")
-	if name == "" || sizeStr == "" {
+	name := f.get("name")
+	if name == "" {
+		fmt.Println(createProcessUsage)
+		fmt.Println("  Etapa 5: create_process --name \"App_Web\" --burst 8ms --priority 1 --syscall \"read_disk at 3ms (duration: 4ms)\"")
+		return
+	}
+
+	hasEtapa5Flags := f.isSet("burst") || f.isSet("priority") || f.isSet("syscall")
+
+	size := 32 * memory.KB
+	if f.isSet("size") {
+		parsedSize, err := memory.ParseSize(f.get("size"))
+		if err != nil {
+			fmt.Println("create_process:", err)
+			return
+		}
+		size = parsedSize
+	} else if !hasEtapa5Flags {
 		fmt.Println(createProcessUsage)
 		return
 	}
-	size, err := memory.ParseSize(sizeStr)
-	if err != nil {
-		fmt.Println("create_process:", err)
-		return
-	}
-	typ := strings.ToLower(f.get("type"))
-	if typ == "" {
-		typ = "normal"
-	}
-	owner := vfs.Sec.CurrentName()
 
-	var p *memory.Process
-	switch typ {
+	typStr := strings.ToLower(f.get("type"))
+	if typStr == "" {
+		typStr = "normal"
+	}
+	procType := memory.Normal
+	switch typStr {
 	case "critical", "critico", "crítico":
 		if !vfs.Sec.RequireKernel("create_process --type critical") {
 			return
 		}
-		p = mem.CreateCritical(name, owner, size)
+		procType = memory.Critical
 	case "normal", "user", "usuario", "usuário":
-		p = mem.CreateNormal(name, owner, size)
+		procType = memory.Normal
 	default:
-		fmt.Printf("create_process: tipo '%s' inválido (use critical ou normal).\n", typ)
+		fmt.Printf("create_process: tipo '%s' inválido (use critical ou normal).\n", typStr)
 		return
 	}
+
+	owner := vfs.Sec.CurrentName()
+
+	if pm := getProcMgr(vfs); pm != nil && hasEtapa5Flags {
+		burst := 6
+		if f.isSet("burst") {
+			b, ok := parseMsInt(f.get("burst"))
+			if !ok || b <= 0 {
+				fmt.Println("create_process: --burst inválido (use ex.: 8ms).")
+				return
+			}
+			burst = b
+		}
+		prio := 2
+		if f.isSet("priority") {
+			pr, ok := parseInt(f.get("priority"))
+			if !ok || pr < 0 {
+				fmt.Println("create_process: --priority inválido.")
+				return
+			}
+			prio = pr
+		}
+		pcb, err := pm.Create(process.CreateOptions{
+			Name:        name,
+			Owner:       owner,
+			Size:        size,
+			Type:        procType,
+			Burst:       burst,
+			Priority:    prio,
+			SyscallSpec: f.get("syscall"),
+		})
+		if err != nil {
+			fmt.Println("create_process:", err)
+			return
+		}
+		vfs.Sec.Record("CREATE_PROCESS", true, fmt.Sprintf("%s pid=%d tipo=%s burst=%dms prio=%d",
+			pcb.Name, pcb.PID, pcb.Type, pcb.BurstTime, pcb.Priority))
+		return
+	}
+
+	var p *memory.Process
+	if procType == memory.Critical {
+		p = mem.CreateCritical(name, owner, size)
+	} else {
+		p = mem.CreateNormal(name, owner, size)
+	}
 	if p != nil {
+		if pm := getProcMgr(vfs); pm != nil {
+			pm.RegisterExisting(p)
+		}
 		vfs.Sec.Record("CREATE_PROCESS", true, fmt.Sprintf("%s pid=%d tipo=%s tamanho=%d", p.Name, p.PID, p.Type, p.Size))
 	}
 }
@@ -151,6 +211,9 @@ func HandleTerminateProcess(vfs *fs.VirtualFileSystem, args []string) {
 		}
 	} else if !canTouch(vfs, p, "terminate_process") {
 		return
+	}
+	if pm := getProcMgr(vfs); pm != nil {
+		pm.Remove(p.PID)
 	}
 	vfs.Sec.Record("TERMINATE_PROCESS", true, fmt.Sprintf("%s pid=%d tipo=%s", p.Name, p.PID, p.Type))
 	mem.Terminate(p)
